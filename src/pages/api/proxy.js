@@ -2,7 +2,6 @@
 import '@shopify/shopify-api/adapters/node';
 import { shopifyApi, LATEST_API_VERSION } from "@shopify/shopify-api";
 import fetch from "node-fetch";
-import NextCors from "nextjs-cors";
 
 const SHOP = process.env.SHOPIFY_STORE_DOMAIN.replace(/^https?:\/\//, "");
 const API_VERSION = process.env.SHOPIFY_API_VERSION || "2024-07";
@@ -16,20 +15,27 @@ const shopify = shopifyApi({
   hostName: SHOP,
 });
 
-export default async function handler(req, res) {
-  // ✅ Run CORS middleware first
-  await NextCors(req, res, {
-    origin: [
-      "https://myselflingerie.com",
-      "https://www.myselflingerie.com",
-      "http://localhost:3000" // allow local dev
-    ],
-    methods: ["GET", "POST", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization"],
-    optionsSuccessStatus: 200,
-  });
+// custom CORS middleware
+function applyCors(req, res) {
+  const allowedOrigins = [
+    "https://myselflingerie.com",
+    "https://www.myselflingerie.com",
+    "http://localhost:3000",
+  ];
 
-  // ✅ Preflight always exits cleanly
+  const origin = req.headers.origin;
+  if (allowedOrigins.includes(origin)) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+  }
+
+  res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  res.setHeader("Cache-Control", "no-store");
+}
+
+export default async function handler(req, res) {
+  applyCors(req, res);
+
   if (req.method === "OPTIONS") {
     return res.status(200).end();
   }
@@ -83,6 +89,7 @@ export default async function handler(req, res) {
 
   } catch (error) {
     console.error("Proxy error:", error);
+    applyCors(req, res);
     return res.status(500).json({ error: error.message, stack: error.stack });
   }
 }
