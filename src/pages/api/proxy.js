@@ -15,23 +15,30 @@ const shopify = shopifyApi({
   hostName: SHOP,
 });
 
-export default async function handler(req, res) {
-  // CORS + preflight
+// helper to set CORS headers
+function setCors(res) {
   res.setHeader("Access-Control-Allow-Origin", "https://myselflingerie.com");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
-  if (req.method === "OPTIONS") return res.status(200).end();
+}
 
+export default async function handler(req, res) {
   try {
+    setCors(res);
+
+    // Handle preflight request
+    if (req.method === "OPTIONS") {
+      return res.status(200).end();
+    }
+
     if (req.method !== "POST") {
       return res.status(405).json({ error: "Method not allowed" });
     }
 
     const body = req.body || {};
-    // If frontend asks for REST product data, handle here:
-    // inside proxy handler
+
+    // REST product fetch
     if (body.rest === true && body.productHandle) {
-      // fetch by handle via REST
       const restUrl = `https://${SHOP}/admin/api/${API_VERSION}/products.json?handle=${body.productHandle}`;
       const restResp = await fetch(restUrl, {
         method: "GET",
@@ -40,6 +47,7 @@ export default async function handler(req, res) {
           "X-Shopify-Access-Token": process.env.SHOPIFY_ADMIN_ACCESS_TOKEN,
         },
       });
+
       const restJson = await restResp.json();
       if (restJson.products && restJson.products.length > 0) {
         return res.status(restResp.status).json({ product: restJson.products[0] });
@@ -48,8 +56,7 @@ export default async function handler(req, res) {
       }
     }
 
-
-    // Otherwise fall back to your GraphQL handling (existing code)
+    // GraphQL handling
     let { query, variables } = body;
     variables = variables || {};
 
@@ -62,9 +69,6 @@ export default async function handler(req, res) {
       });
     }
 
-    console.log("➡️ Query:", query);
-    console.log("➡️ Variables:", JSON.stringify(variables, null, 2));
-
     const client = new shopify.clients.Graphql({
       session: {
         shop: process.env.SHOPIFY_STORE_DOMAIN,
@@ -74,8 +78,10 @@ export default async function handler(req, res) {
 
     const response = await client.request(query, { variables });
     return res.status(200).json(response);
+
   } catch (error) {
     console.error("Proxy error:", error);
+    setCors(res); // ensure headers also on error
     return res.status(500).json({ error: error.message, stack: error.stack });
   }
 }
