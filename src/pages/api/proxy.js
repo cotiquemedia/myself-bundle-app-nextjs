@@ -15,42 +15,23 @@ const shopify = shopifyApi({
   hostName: SHOP,
 });
 
-// custom CORS middleware
-function applyCors(req, res) {
-  const allowedOrigins = [
-    "https://myselflingerie.com",
-    "https://www.myselflingerie.com",
-    "http://localhost:3000",
-  ];
-
-  const origin = req.headers.origin;
-  if (allowedOrigins.includes(origin)) {
-    res.setHeader("Access-Control-Allow-Origin", origin);
-  }
-
-  res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With");
-  res.setHeader("Access-Control-Allow-Credentials", "true");
-  res.setHeader("Access-Control-Max-Age", "86400"); // 24 hours
-  res.setHeader("Cache-Control", "no-store");
-}
-
 export default async function handler(req, res) {
-  applyCors(req, res);
-
-  if (req.method === "OPTIONS") {
-    return res.status(200).end();
-  }
-
-  if (req.method !== "POST") {
-    return res.status(405).json({ error: "Method not allowed" });
-  }
+  // CORS + preflight
+  res.setHeader("Access-Control-Allow-Origin", "https://myselflingerie.com");
+  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  if (req.method === "OPTIONS") return res.status(200).end();
 
   try {
-    const body = req.body || {};
+    if (req.method !== "POST") {
+      return res.status(405).json({ error: "Method not allowed" });
+    }
 
-    // --- REST product fetch ---
+    const body = req.body || {};
+    // If frontend asks for REST product data, handle here:
+    // inside proxy handler
     if (body.rest === true && body.productHandle) {
+      // fetch by handle via REST
       const restUrl = `https://${SHOP}/admin/api/${API_VERSION}/products.json?handle=${body.productHandle}`;
       const restResp = await fetch(restUrl, {
         method: "GET",
@@ -59,7 +40,6 @@ export default async function handler(req, res) {
           "X-Shopify-Access-Token": process.env.SHOPIFY_ADMIN_ACCESS_TOKEN,
         },
       });
-
       const restJson = await restResp.json();
       if (restJson.products && restJson.products.length > 0) {
         return res.status(restResp.status).json({ product: restJson.products[0] });
@@ -68,16 +48,22 @@ export default async function handler(req, res) {
       }
     }
 
-    // --- GraphQL handling ---
+
+    // Otherwise fall back to your GraphQL handling (existing code)
     let { query, variables } = body;
     variables = variables || {};
 
     if (variables.input && Array.isArray(variables.input.components)) {
       variables.input.components = variables.input.components.map((component) => {
-        if (!component.optionSelections?.length) delete component.optionSelections;
+        if (!component.optionSelections || !Array.isArray(component.optionSelections) || component.optionSelections.length === 0) {
+          delete component.optionSelections;
+        }
         return component;
       });
     }
+
+    console.log("➡️ Query:", query);
+    console.log("➡️ Variables:", JSON.stringify(variables, null, 2));
 
     const client = new shopify.clients.Graphql({
       session: {
@@ -88,7 +74,6 @@ export default async function handler(req, res) {
 
     const response = await client.request(query, { variables });
     return res.status(200).json(response);
-
   } catch (error) {
     console.error("Proxy error:", error);
     return res.status(500).json({ error: error.message, stack: error.stack });
