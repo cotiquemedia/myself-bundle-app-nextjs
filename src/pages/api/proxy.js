@@ -15,26 +15,25 @@ const shopify = shopifyApi({
   hostName: SHOP,
 });
 
-// helper to set CORS headers
 function setCors(res) {
   res.setHeader("Access-Control-Allow-Origin", "https://myselflingerie.com");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  res.setHeader("Cache-Control", "no-store");
 }
 
 export default async function handler(req, res) {
+  setCors(res); // always first
+
+  if (req.method === "OPTIONS") {
+    return res.status(200).json({});
+  }
+
+  if (req.method !== "POST") {
+    return res.status(405).json({ error: "Method not allowed" });
+  }
+
   try {
-    setCors(res);
-
-    // Handle preflight request
-    if (req.method === "OPTIONS") {
-      return res.status(200).end();
-    }
-
-    if (req.method !== "POST") {
-      return res.status(405).json({ error: "Method not allowed" });
-    }
-
     const body = req.body || {};
 
     // REST product fetch
@@ -62,9 +61,7 @@ export default async function handler(req, res) {
 
     if (variables.input && Array.isArray(variables.input.components)) {
       variables.input.components = variables.input.components.map((component) => {
-        if (!component.optionSelections || !Array.isArray(component.optionSelections) || component.optionSelections.length === 0) {
-          delete component.optionSelections;
-        }
+        if (!component.optionSelections?.length) delete component.optionSelections;
         return component;
       });
     }
@@ -81,7 +78,7 @@ export default async function handler(req, res) {
 
   } catch (error) {
     console.error("Proxy error:", error);
-    setCors(res); // ensure headers also on error
+    setCors(res);
     return res.status(500).json({ error: error.message, stack: error.stack });
   }
 }
